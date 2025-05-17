@@ -1,0 +1,407 @@
+
+#ifndef TETRIS_CPP_
+#define TETRIS_CPP_
+#include "util.h"
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <ctime>
+#include <unistd.h>
+#include <cmath>
+using namespace std;
+
+const int maxSnakeLength = 100; // Choose a maximum length for the snake
+const int maxFoodCount = 5;
+int snakeLength = 1;
+int snakeDirection = 0; // 0: right, 1: up, 2: left, 3: down
+int snakePositionX, snakePositionY; // Head of the snake
+int snakeBodyX[maxSnakeLength], snakeBodyY[maxSnakeLength]; // Body of the snake
+int foodX[maxFoodCount], foodY[maxFoodCount]; // Positions of the foods
+const int maxObstacles = 10; // Choose a maximum number of obstacles
+int obstacleCount = 0;
+int obstacleX[maxObstacles], obstacleY[maxObstacles];
+int obstacleShape[maxObstacles]; // 0: Vertical Line, 1: Horizontal Line, 2: U-shape, 3: L-shape, 4: Z-shape
+time_t foodCreationTime[maxFoodCount];
+time_t obstacleCreationTime[maxObstacles];
+const int canvasSize = 64; // Assuming each side of the canvas is 64 units
+int currentLevel = 1;
+int score = 0;
+bool gameOver = false;
+bool powerUpActive = false;
+int powerUpX, powerUpY;
+time_t powerUpCreationTime;
+
+
+// Function to initialize obstacles at the start of the game
+void InitializeObstacles() {
+    obstacleCount = 5; // Adjust the number of obstacles as needed
+
+    // Initialize the obstacle arrays
+    for (int i = 0; i < obstacleCount; ++i) {
+        obstacleX[i] = rand() % canvasSize;
+        obstacleY[i] = rand() % canvasSize;
+        obstacleShape[i] = rand() % 5; // Randomly choose the obstacle shape
+        obstacleCreationTime[i] = time(nullptr); // Record creation time
+    }
+}
+
+// Function to draw obstacles on the canvas
+void DrawObstacles() {
+    for (int i = 0; i < obstacleCount; ++i) {
+        switch (obstacleShape[i]) {
+        case 0: // Vertical Line
+            DrawSquare(obstacleX[i] * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare(obstacleX[i] * 10, (obstacleY[i] + 1) * 10, 10, colors[5]);
+            DrawSquare(obstacleX[i] * 10, (obstacleY[i] + 2) * 10, 10, colors[5]);
+            break;
+        case 1: // Horizontal Line
+            DrawSquare(obstacleX[i] * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 1) * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 2) * 10, obstacleY[i] * 10, 10, colors[5]);
+            break;
+        case 2: // U-shape
+            DrawSquare(obstacleX[i] * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 1) * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 2) * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare(obstacleX[i] * 10, (obstacleY[i] + 1) * 10, 10, colors[5]);
+            DrawSquare(obstacleX[i] * 10, (obstacleY[i] + 2) * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 2) * 10, (obstacleY[i] + 1) * 10, 10, colors[5]);
+            break;
+        case 3: // L-shape
+            DrawSquare(obstacleX[i] * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 1) * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 2) * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 2) * 10, (obstacleY[i] + 1) * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 2) * 10, (obstacleY[i] + 2) * 10, 10, colors[5]);
+            break;
+        case 4: // Z-shape
+            DrawSquare(obstacleX[i] * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 1) * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 2) * 10, obstacleY[i] * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 2) * 10, (obstacleY[i] + 1) * 10, 10, colors[5]);
+            DrawSquare((obstacleX[i] + 1) * 10, (obstacleY[i] + 1) * 10, 10, colors[5]);
+            break;
+        }
+    }
+}
+// Function to initialize the snake at the start of the game
+void InitializeSnake() {
+    snakeLength = 3;
+    snakeDirection = 0;
+    snakePositionX = 5;
+    snakePositionY = 5;
+
+    // Initialize the snake body arrays
+    for (int i = 0; i < maxSnakeLength; ++i) {
+        snakeBodyX[i] = 0;
+        snakeBodyY[i] = 0;
+    }
+}
+void SetCanvasSize(int width, int height) {
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0, width, 0, height, -1, 1); // set the screen size to given width and height.
+    glMatrixMode( GL_MODELVIEW);
+    glLoadIdentity();
+}
+// Function to initialize the food at random positions
+void InitializeFoods() {
+    for (int i = 0; i < maxFoodCount; ++i) {
+        foodX[i] = rand() % canvasSize; // Random x-coordinate
+        foodY[i] = rand() % canvasSize; // Random y-coordinate
+        foodCreationTime[i] = time(nullptr); // Record creation time
+    }
+        powerUpActive = false;
+
+}
+void CheckPowerUpCollision() {
+    if (!powerUpActive) {
+        // Generate a random number to determine if a power-up should appear
+        int randomNumber = rand() % 100;
+        
+        if (randomNumber == 0) {
+            // 1% chance for power-up appearance
+            powerUpX = rand() % canvasSize;
+            powerUpY = rand() % canvasSize;
+            powerUpActive = true;
+        }
+    } else {
+        // Check collision with the snake's head
+        if (snakePositionX == powerUpX && snakePositionY == powerUpY) {
+            // Snake collided with the power-up, increase score and make it disappear
+            score += 20;
+            powerUpActive = false;
+        }
+    }
+}
+
+
+// Function to update the snake's position with wrap-around
+void UpdateSnake() {
+    if (gameOver) {
+        return; // Do not update the snake if the game is over
+    }
+    // Move the body
+    for (int i = snakeLength - 1; i > 0; --i) {
+        snakeBodyX[i] = snakeBodyX[i - 1];
+        snakeBodyY[i] = snakeBodyY[i - 1];
+    }
+    // Move the head
+    switch (snakeDirection) {
+    case 0:
+        snakePositionX = (snakePositionX + 1) % canvasSize;
+        break;
+    case 1:
+        snakePositionY = (snakePositionY + 1) % canvasSize;
+        break;
+    case 2:
+        snakePositionX = (snakePositionX - 1 + canvasSize) % canvasSize;
+        break;
+    case 3:
+        snakePositionY = (snakePositionY - 1 + canvasSize) % canvasSize;
+        break;
+    }
+    snakeBodyX[0] = snakePositionX;
+    snakeBodyY[0] = snakePositionY;
+}
+
+// Function to check if the snake collides with itself
+bool CheckSelfCollision() {
+    if (gameOver) {
+        return false; // Ignore collision check if the game is over
+    }
+    for (int i = 1; i < snakeLength; ++i) {
+        if (snakePositionX == snakeBodyX[i] && snakePositionY == snakeBodyY[i]) {
+            return true; // Collision detected
+        }
+    }
+    return false; // No collision
+}
+
+// Function to check if the snake collided with any food and handle wrap-around
+// Function to check if the snake collided with any food and handle wrap-around
+void CheckFoodCollision() {
+    for (int i = 0; i < maxFoodCount; ++i) {
+        if (snakePositionX == foodX[i] && snakePositionY == foodY[i]) {
+            // Check if 15 seconds have passed since the creation of this food
+                // Snake collided with food, increase snake length
+                foodX[i] = rand() % canvasSize;
+                foodY[i] = rand() % canvasSize;
+                foodCreationTime[i] = time(nullptr);
+                snakeLength++;
+                score += 10;
+            }
+            if (time(nullptr) - foodCreationTime[i] >= 15) {
+                // Respawn the food and update its creation time
+                foodX[i] = rand() % canvasSize;
+                foodY[i] = rand() % canvasSize;
+                foodCreationTime[i] = time(nullptr);
+        }
+    }
+}
+
+void DrawLevel() {
+    DrawString(10, 610, "Level: " + to_string(currentLevel), colors[1]);
+}
+// Function to draw the foods on the canvas
+void DrawFoods() {
+if (powerUpActive) {
+        DrawCircle(powerUpX * 10 + 5, powerUpY * 10 + 5, 10, colors[RED]); // Assuming color[6] is the color for power-up
+    }
+    for (int i = 0; i < maxFoodCount; ++i) {
+        DrawSquare(foodX[i] * 10, foodY[i] * 10, 10, colors[4]); // Assuming color[4] is the color for food
+    }
+}
+
+// Function to draw the snake on the canvas
+void DrawSnake() {
+    // Draw the head
+    DrawSquare(snakePositionX * 10, snakePositionY * 10, 10, colors[2]);
+
+    // Draw the body
+    for (int i = 1; i < snakeLength; ++i) {
+        DrawSquare(snakeBodyX[i] * 10, snakeBodyY[i] * 10, 10, colors[3]);
+    }
+}
+
+// Function to handle arrow key input for controlling the snake
+void HandleArrowKeys(int key) {
+    // Check if the new direction is not opposite to the current direction
+    if (!gameOver) {
+        switch (key) {
+        case GLUT_KEY_UP:
+            if (snakeDirection != 3) // Avoid going down if currently moving up
+                snakeDirection = 1;
+        case GLUT_KEY_DOWN:
+            if (snakeDirection != 1) // Avoid going up if currently moving down
+                snakeDirection = 3;
+            break;
+        case GLUT_KEY_LEFT:
+            if (snakeDirection != 0) // Avoid going right if currently moving left
+                snakeDirection = 2;
+            break;
+        case GLUT_KEY_RIGHT:
+            if (snakeDirection != 2) // Avoid going left if currently moving right
+                snakeDirection = 0;
+            break;
+        }
+    }
+}
+
+// Function to update the Display function
+void Display() {
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    DrawSquare(0, 0, 640, colors[10]);
+
+    if (gameOver) {
+        DrawString(250, 300, "Game Over!", colors[1]);
+        DrawString(230, 250, "Press 'R' to restart", colors[1]);
+    } else {
+        // Draw the foods
+        DrawFoods();
+        DrawObstacles();
+        // Draw the snake
+        DrawSnake();
+        // Draw the current level
+        DrawLevel();
+            string scoreString="Score: ";
+            scoreString+=to_string(score);
+           DrawString(100, 610, scoreString, colors[1]);
+        // Draw other elements (if any)
+    }
+
+    glutSwapBuffers();
+}
+void InitializeLevel(){
+currentLevel=1;
+score=0;}
+// Function to handle printable key input
+void PrintableKeys(unsigned char key, int x, int y) {
+    if (gameOver && (key == 'R' || key == 'r')) {
+        // Restart the game if 'R' or 'r' is pressed
+        gameOver = false;
+        InitializeSnake();
+        InitializeFoods();
+        InitializeLevel();
+    }
+    glutPostRedisplay();
+}
+// Function to check collision with obstacles
+bool CheckObstacleCollision() {
+    if (gameOver) {
+        return false; // Ignore collision check if the game is over
+    }
+
+    for (int i = 0; i < obstacleCount; ++i) {
+        // Check if 15 seconds have passed since the creation of this obstacle
+        if (time(nullptr) - obstacleCreationTime[i] >= 15) {
+            // Respawn the obstacle and update its creation time
+            obstacleX[i] = rand() % canvasSize;
+            obstacleY[i] = rand() % canvasSize;
+            obstacleShape[i] = rand() % 5; // Randomly choose the obstacle shape
+            obstacleCreationTime[i] = time(nullptr);
+        }
+
+        switch (obstacleShape[i]) {
+        case 0: // Vertical Line
+                if (snakePositionX == obstacleX[i] && (snakePositionY == obstacleY[i] || snakePositionY == obstacleY[i] + 1 || snakePositionY == obstacleY[i] + 2)) {
+                    return true; // Collision detected
+                }
+                break;
+            case 1: // Horizontal Line
+                if ((snakePositionX == obstacleX[i] || snakePositionX == obstacleX[i] + 1 || snakePositionX == obstacleX[i] + 2) && snakePositionY == obstacleY[i]) {
+                    return true; // Collision detected
+                }
+                break;
+            case 2: // U-shape
+                if ((snakePositionX == obstacleX[i] || snakePositionX == obstacleX[i] + 1 || snakePositionX == obstacleX[i] + 2) &&
+                    (snakePositionY == obstacleY[i] || snakePositionY == obstacleY[i] + 2)) {
+                    return true; // Collision detected
+                }
+                break;
+            case 3: // L-shape
+                if ((snakePositionX == obstacleX[i] || snakePositionX == obstacleX[i] + 2) &&
+                    (snakePositionY == obstacleY[i] || snakePositionY == obstacleY[i] + 1 || snakePositionY == obstacleY[i] + 2)) {
+                    return true; // Collision detected
+                }
+                break;
+            case 4: // Z-shape
+                if ((snakePositionX == obstacleX[i] || snakePositionX == obstacleX[i] + 1 || snakePositionX == obstacleX[i] + 2) &&
+                    (snakePositionY == obstacleY[i] || snakePositionY == obstacleY[i] + 1)) {
+                    return true; // Collision detected
+                }
+                break;
+
+        }
+    }
+
+    return false; // No collision
+}
+
+// Function to update the Timer function
+// Update the Timer function
+
+void CheckLevelUp() {
+    if (score >= currentLevel * 10) {
+        // Increase the level and add more obstacles
+        currentLevel++;
+        obstacleCount += 2; // Increase the number of obstacles
+        InitializeObstacles(); // Reinitialize obstacles for the new level
+    }
+}
+void Timer(int m) {
+    if (!gameOver) {
+        if (CheckObstacleCollision() || CheckSelfCollision()) {
+            gameOver = true;
+            glutKeyboardFunc(PrintableKeys);
+        } else {
+        // Check for power-up activation (10% chance)
+        if (!powerUpActive && rand() % 100 <10) {
+            powerUpActive = true;
+            powerUpX = rand() % canvasSize;
+            powerUpY = rand() % canvasSize;
+            powerUpCreationTime = time(nullptr);
+        }
+
+        CheckPowerUpCollision();
+            UpdateSnake();
+            CheckFoodCollision();
+            CheckLevelUp(); // Check for level up based on the score
+        }
+    }
+
+    glutPostRedisplay();
+    glutTimerFunc(1000.0 / FPS, Timer, 0);
+}
+// Update the NonPrintableKeys function
+void NonPrintableKeys(int key, int x, int y) {
+    HandleArrowKeys(key);
+    glutPostRedisplay();
+}
+
+// Update the main function
+int main(int argc, char *argv[]) {
+    int width = 650, height = 650;
+    InitRandomizer();
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
+    glutInitWindowPosition(50, 50);
+    glutInitWindowSize(width, height);
+    glutCreateWindow("Snake Game");
+    SetCanvasSize(width, height);
+InitializeObstacles();
+    InitializeSnake(); // Initialize the snake
+    InitializeFoods(); // Initialize the foods
+
+    glutDisplayFunc(Display);
+    glutSpecialFunc(NonPrintableKeys);
+    glutTimerFunc(1000.0 / FPS, Timer, 0);
+
+    glutMainLoop();
+    return 1;
+}
+
+#endif
+

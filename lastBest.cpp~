@@ -1,0 +1,365 @@
+#include "util.h"
+#include <iostream>
+#include <algorithm>
+#include <unistd.h>
+#include <ctime>
+#include <string>
+using namespace std;
+
+const int GRID_SIZE = 20;
+const int CELL_SIZE = 30;
+const int FRAMES_PER_SECOND = 10; // Set your desired frames per second
+
+const int UP = 0;
+const int DOWN = 1;
+const int LEFT = 2;
+const int RIGHT = 3;
+int score = 0;
+int snake[GRID_SIZE * GRID_SIZE * 2];
+int snakeLength = 1;
+int direction = RIGHT;
+
+int food[5][2];         // Store five food items with x, y coordinates
+bool foodActive[5];     // Indicates whether the food is currently active
+time_t foodTime[5];     // Timestamp when each food was placed
+float* foodColors[5];   // Colors for each food item
+
+int hurdles[3][4];      // Store three hurdles with x, y, shape, and length
+bool hurdleActive[3];   // Indicates whether the hurdle is currently active
+time_t hurdleTime[3];    // Timestamp when each hurdle was placed
+
+bool powerupActive = false; // Indicates whether the power-up is currently active
+int powerup[2];             // Store power-up position (x, y)
+time_t powerupTime;         // Timestamp when the power-up was placed
+
+bool gameOver = false;
+
+void SetCanvasSize(int width, int height) {
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0, width, 0, height, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+}
+
+float* getRandomColor() {
+    float* color = new float[3];
+    color[0] = static_cast<float>(rand()) / RAND_MAX; // Red component
+    color[1] = static_cast<float>(rand()) / RAND_MAX; // Green component
+    color[2] = static_cast<float>(rand()) / RAND_MAX; // Blue component
+    return color;
+}
+
+void Timer(int m) {
+    glutPostRedisplay();
+    glutTimerFunc(1000.0 / FRAMES_PER_SECOND, Timer, 0);
+}
+
+void DrawSnake() {
+    DrawCircle(snake[0] * CELL_SIZE + CELL_SIZE / 2, snake[1] * CELL_SIZE + CELL_SIZE / 2, CELL_SIZE / 2, colors[31]);
+
+    for (int i = 1; i < snakeLength; ++i) {
+        DrawSquare(snake[i * 2] * CELL_SIZE, snake[i * 2 + 1] * CELL_SIZE, CELL_SIZE, colors[31]);
+    }
+}
+
+void DrawFood() {
+    for (int i = 0; i < 5; ++i) {
+        if (foodActive[i]) {
+            DrawCircle(food[i][0] * CELL_SIZE + CELL_SIZE / 2, food[i][1] * CELL_SIZE + CELL_SIZE / 2, CELL_SIZE / 2, foodColors[i]);
+        }
+    }
+}
+
+void DrawHurdle(const int hurdle[4]) {
+    // Implement drawing logic for each shape (L, U, Z, Line)
+    // Adjust positions based on hurdle[0] (x), hurdle[1] (y), hurdle[2] (shape), and hurdle[3] (length)
+    int x = hurdle[0];
+    int y = hurdle[1];
+    int shape = hurdle[2];
+    int length = hurdle[3];
+
+    switch (shape) {
+        case 0: // L-shape
+            DrawSquare(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, colors[8]);
+            DrawSquare(x * CELL_SIZE, (y - length + 1) * CELL_SIZE, CELL_SIZE, colors[8]);
+            DrawSquare((x + 1) * CELL_SIZE, (y - length + 1) * CELL_SIZE, CELL_SIZE, colors[8]);
+            break;
+        case 1: // U-shape
+            DrawSquare(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, colors[8]);
+            DrawSquare((x + length) * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, colors[8]);
+            DrawSquare(x * CELL_SIZE, (y - 1) * CELL_SIZE, CELL_SIZE, colors[8]);
+            DrawSquare((x + length) * CELL_SIZE, (y - 1) * CELL_SIZE, CELL_SIZE, colors[8]);
+            break;
+        case 2: // Z-shape
+            DrawSquare(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, colors[8]);
+            DrawSquare((x + 1) * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, colors[8]);
+            DrawSquare((x + 1) * CELL_SIZE, (y - 1) * CELL_SIZE, CELL_SIZE, colors[8]);
+            DrawSquare((x + 2) * CELL_SIZE, (y - 1) * CELL_SIZE, CELL_SIZE, colors[8]);
+            break;
+        case 3: // Line
+            for (int i = 0; i < length; ++i) {
+                DrawSquare(x * CELL_SIZE, (y - i) * CELL_SIZE, CELL_SIZE, colors[8]);
+            }
+            break;
+    }
+}
+
+void DrawHurdles() {
+    for (int i = 0; i < 3; ++i) {
+        if (hurdleActive[i]) {
+            DrawHurdle(hurdles[i]);
+        }
+    }
+}
+
+void DrawPowerup() {
+    if (powerupActive) {
+        DrawCircle(powerup[0] * CELL_SIZE + CELL_SIZE / 2, powerup[1] * CELL_SIZE + CELL_SIZE , CELL_SIZE , colors[PINK]);
+    }
+}
+
+void GenerateFood(int index) {
+    food[index][0] = rand() % GRID_SIZE;
+    food[index][1] = rand() % GRID_SIZE;
+
+    // Ensure the new food meets the specified conditions
+    for (int i = 0; i < index; ++i) {
+        while (food[index][0] == food[i][0] || food[index][1] == food[i][1]) {
+            food[index][0] = rand() % GRID_SIZE;
+            food[index][1] = rand() % GRID_SIZE;
+        }
+    }
+
+    foodActive[index] = true;
+    foodTime[index] = time(0);
+}
+
+void GenerateHurdle(int index) {
+    hurdles[index][0] = rand() % GRID_SIZE;
+    hurdles[index][1] = rand() % GRID_SIZE;
+    hurdles[index][2] = rand() % 4;        // 0: L, 1: U, 2: Z, 3: Line
+    hurdles[index][3] = rand() % 5 + 1;    // Random length between 1 and 5
+    hurdleActive[index] = true;
+    hurdleTime[index] = time(0);
+}
+
+void GeneratePowerup() {
+    powerup[0] = rand() % GRID_SIZE;
+    powerup[1] = rand() % GRID_SIZE;
+    powerupActive = true;
+    powerupTime = time(0);
+}
+
+void CheckPowerupCollision() {
+    if (powerupActive && snake[0] == powerup[0] && snake[1] == powerup[1]) {
+        powerupActive = false;
+        score += 20;
+    }
+}
+
+bool IsSnakeCollidingWithHurdle(const int hurdle[4]) {
+    int x = hurdle[0];
+    int y = hurdle[1];
+    int shape = hurdle[2];
+    int length = hurdle[3];
+
+    switch (shape) {
+        case 0: // L-shape
+            if (snake[0] == x && (snake[1] >= y - length + 1 && snake[1] <= y)) {
+                return true;
+            }
+            break;
+        case 1: // U-shape
+            if ((snake[0] >= x && snake[0] <= x + length) && (snake[1] == y || snake[1] == y - 1)) {
+                return true;
+            }
+            break;
+        case 2: // Z-shape
+            if ((snake[0] == x || snake[0] == x + 1 || snake[0] == x + 2) && (snake[1] == y || snake[1] == y - 1)) {
+                return true;
+            }
+            break;
+        case 3: // Line
+            for (int i = 0; i < length; ++i) {
+                if (snake[0] == x && snake[1] == y - i) {
+                    return true;
+                }
+            }
+            break;
+    }
+
+    return false;
+}
+
+void MoveSnake() {
+    int newHeadX = snake[0];
+    int newHeadY = snake[1];
+
+    switch (direction) {
+        case UP:
+            newHeadY = (newHeadY + 1) % GRID_SIZE;
+            break;
+        case DOWN:
+            newHeadY = (newHeadY - 1 + GRID_SIZE) % GRID_SIZE;
+            break;
+        case LEFT:
+            newHeadX = (newHeadX - 1 + GRID_SIZE) % GRID_SIZE;
+            break;
+        case RIGHT:
+            newHeadX = (newHeadX + 1) % GRID_SIZE;
+            break;
+    }
+
+    // Check if the snake eats food
+    for (int i = 0; i < 5; ++i) {
+        if (foodActive[i] && newHeadX == food[i][0] && newHeadY == food[i][1]) {
+            GenerateFood(i);
+            snakeLength++;
+            score += 10;
+        }
+    }
+
+    // Check if the snake collides with the power-up
+    CheckPowerupCollision();
+
+    // Move the snake
+    for (int i = snakeLength - 1; i > 0; --i) {
+        snake[i * 2] = snake[(i - 1) * 2];
+        snake[i * 2 + 1] = snake[(i - 1) * 2 + 1];
+    }
+
+    snake[0] = newHeadX;
+    snake[1] = newHeadY;
+
+    // Check if snake collides with itself
+    for (int i = 1; i < snakeLength; ++i) {
+        if (newHeadX == snake[i * 2] && newHeadY == snake[i * 2 + 1]) {
+            gameOver = true;
+            return;
+        }
+    }
+
+    // Check if snake collides with hurdles
+    for (int i = 0; i < 3; ++i) {
+        if (hurdleActive[i] && IsSnakeCollidingWithHurdle(hurdles[i])) {
+            gameOver = true;
+            return;
+        }
+    }
+
+    // Check if the food needs to disappear or reappear
+    for (int i = 0; i < 5; ++i) {
+        if (foodActive[i]) {
+            if (time(nullptr) - foodTime[i] >= 15) {
+                foodActive[i] = false;
+            }
+        } else {
+            GenerateFood(i);
+        }
+    }
+
+    // Check if the hurdles need to disappear or reappear
+    for (int i = 0; i < 3; ++i) {
+        if (hurdleActive[i]) {
+            if (time(nullptr) - hurdleTime[i] >= 15) {
+                hurdleActive[i] = false;
+            }
+        } else {
+            GenerateHurdle(i);
+        }
+    }
+
+    // Check if the power-up needs to disappear or reappear
+    if (powerupActive) {
+        if (time(nullptr) - powerupTime >= 15) {
+            powerupActive = false;
+        }
+    } else {
+        GeneratePowerup();
+    }
+}
+
+void Display() {
+    glClearColor(0.0, 0.0, 0.0, 0.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    if (!gameOver) {
+        string sc = "Score: ";
+        sc += to_string(score);
+        DrawString(20, 20, sc, colors[MISTY_ROSE]);
+        DrawSnake();
+        DrawFood();
+        DrawHurdles();
+        DrawPowerup();
+        MoveSnake();
+    } else {
+        DrawString(250, 300, "Game Over!", colors[5]);
+        DrawString(240, 250, "YOUR SCORE:", colors[WHITE]);
+        string sc=to_string(score);
+        DrawString(300, 225, sc, colors[WHITE]);
+        
+    }
+
+    glutSwapBuffers();
+}
+
+void NonPrintableKeys(int key, int x, int y) {
+    if (!gameOver) {
+        switch (key) {
+            case GLUT_KEY_UP:
+                if (direction != DOWN)
+                    direction = UP;
+                break;
+            case GLUT_KEY_DOWN:
+                if (direction != UP)
+                    direction = DOWN;
+                break;
+            case GLUT_KEY_LEFT:
+                if (direction != RIGHT)
+                    direction = LEFT;
+                break;
+            case GLUT_KEY_RIGHT:
+                if (direction != LEFT)
+                    direction = RIGHT;
+                break;
+        }
+    }
+
+    glutPostRedisplay();
+}
+
+int main(int argc, char* argv[]) {
+    int width = GRID_SIZE * CELL_SIZE;
+    int height = GRID_SIZE * CELL_SIZE;
+
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
+    glutInitWindowPosition(50, 50);
+    glutInitWindowSize(width, height);
+    glutCreateWindow("Snake Game");
+
+    SetCanvasSize(width, height);
+
+    snake[0] = GRID_SIZE / 2;
+    snake[1] = GRID_SIZE / 2;
+
+    for (int i = 0; i < 3; ++i) {
+        GenerateHurdle(i);
+    }
+
+    for (int i = 0; i < 5; ++i) {
+        GenerateFood(i);
+        foodColors[i] = getRandomColor();
+    }
+
+    GeneratePowerup();
+
+    glutDisplayFunc(Display);
+    glutSpecialFunc(NonPrintableKeys);
+    glutTimerFunc(1000.0 / FRAMES_PER_SECOND, Timer, 0);
+
+    glutMainLoop();
+
+return 0;
+}
